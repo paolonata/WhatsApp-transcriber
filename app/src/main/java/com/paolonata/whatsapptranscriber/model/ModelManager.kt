@@ -21,8 +21,8 @@ class ModelManager(private val context: Context) {
 
     companion object {
         private const val MODEL_URL =
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
-        private const val MODEL_FILE_NAME = "ggml-small-q5_1.bin"
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+        private const val MODEL_FILE_NAME = "ggml-large-v3-turbo-q5_0.bin"
     }
 
     private val modelsDir: File
@@ -34,6 +34,10 @@ class ModelManager(private val context: Context) {
 
     suspend fun ensureModelDownloaded(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         if (isModelReady()) return@withContext
+
+        // Remove any model left over from a previous app version instead of
+        // accumulating several hundred MB blobs across updates.
+        modelsDir.listFiles()?.forEach { it.delete() }
 
         val tempFile = File(modelsDir, "$MODEL_FILE_NAME.part")
         val connection = URL(MODEL_URL).openConnection() as HttpURLConnection
