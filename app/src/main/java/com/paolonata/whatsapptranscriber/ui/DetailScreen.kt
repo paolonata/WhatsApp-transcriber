@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -22,6 +24,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,8 +56,10 @@ import java.util.Locale
 @Composable
 fun DetailScreen(
     transcription: Transcription,
+    isEnhancing: Boolean,
     onBack: () -> Unit,
     onDelete: () -> Unit,
+    onEnhance: () -> Unit,
 ) {
     val context = LocalContext.current
     var fontSize by remember { mutableFloatStateOf(20f) }
@@ -131,6 +137,29 @@ fun DetailScreen(
                     label = "Elimina",
                     onClick = { showDeleteConfirm = true },
                 )
+            }
+
+            if (transcription.audioFilePath != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    when {
+                        transcription.isEnhanced -> Text(
+                            "✓ Precisione migliorata",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        isEnhancing -> {
+                            CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(20.dp), strokeWidth = 2.dp)
+                            Text("Sto migliorando la precisione...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        else -> Button(onClick = onEnhance) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Migliora precisione")
+                        }
+                    }
+                }
             }
 
             Row(

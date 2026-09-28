@@ -25,4 +25,7 @@ interface TranscriptionDao {
             "GROUP BY sender ORDER BY MAX(timestamp) DESC LIMIT 8",
     )
     fun observeRecentSenders(): Flow<List<String>>
+
+    @Query("UPDATE transcriptions SET text = :text, isEnhanced = 1 WHERE id = :id")
+    suspend fun updateEnhancedText(id: Long, text: String)
 }

@@ -5,6 +5,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.ByteOrder
 
@@ -18,112 +20,127 @@ object AudioDecoder {
 
     private const val TARGET_SAMPLE_RATE = 16000
 
-    fun decodeToPcm16k(context: Context, uri: Uri): FloatArray {
-        val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+    /**
+     * Copies a shared content:// audio file into app-private storage. WhatsApp's
+     * read grant on that URI isn't guaranteed to survive past the current share
+     * (e.g. if the app is closed and reopened much later to run "Migliora
+     * precisione"), so anything that might be decoded again later needs its own
+     * local copy instead of holding on to the original URI.
+     */
+    fun copyToLocalFile(context: Context, uri: Uri, destFile: File) {
+        val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("Impossibile aprire il file audio condiviso")
-
-        pfd.use { descriptor ->
-            val extractor = MediaExtractor()
-            try {
-                extractor.setDataSource(descriptor.fileDescriptor)
-
-                var trackIndex = -1
-                var inputFormat: MediaFormat? = null
-                for (i in 0 until extractor.trackCount) {
-                    val format = extractor.getTrackFormat(i)
-                    val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-                    if (mime.startsWith("audio/")) {
-                        trackIndex = i
-                        inputFormat = format
-                        break
-                    }
-                }
-                if (trackIndex < 0 || inputFormat == null) {
-                    throw IOException("Nessuna traccia audio trovata nel file condiviso")
-                }
-                extractor.selectTrack(trackIndex)
-
-                val mime = inputFormat.getString(MediaFormat.KEY_MIME)!!
-                var sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                var channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-
-                val codec = MediaCodec.createDecoderByType(mime)
-                codec.configure(inputFormat, null, null, 0)
-                codec.start()
-
-                val pcmChunks = mutableListOf<ShortArray>()
-                var totalSamples = 0
-                val bufferInfo = MediaCodec.BufferInfo()
-                var sawInputEos = false
-                var sawOutputEos = false
-
-                try {
-                    while (!sawOutputEos) {
-                        if (!sawInputEos) {
-                            val inputIndex = codec.dequeueInputBuffer(10_000)
-                            if (inputIndex >= 0) {
-                                val inputBuffer = codec.getInputBuffer(inputIndex)!!
-                                val sampleSize = extractor.readSampleData(inputBuffer, 0)
-                                if (sampleSize < 0) {
-                                    codec.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                                    sawInputEos = true
-                                } else {
-                                    val presentationTimeUs = extractor.sampleTime
-                                    codec.queueInputBuffer(inputIndex, 0, sampleSize, presentationTimeUs, 0)
-                                    extractor.advance()
-                                }
-                            }
-                        }
-
-                        val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000)
-                        when {
-                            outputIndex >= 0 -> {
-                                if (bufferInfo.size > 0) {
-                                    val outputBuffer = codec.getOutputBuffer(outputIndex)!!
-                                    outputBuffer.order(ByteOrder.LITTLE_ENDIAN)
-                                    outputBuffer.position(bufferInfo.offset)
-                                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                                    val shortBuffer = outputBuffer.asShortBuffer()
-                                    val chunk = ShortArray(shortBuffer.remaining())
-                                    shortBuffer.get(chunk)
-                                    pcmChunks.add(chunk)
-                                    totalSamples += chunk.size
-                                }
-                                codec.releaseOutputBuffer(outputIndex, false)
-                                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                                    sawOutputEos = true
-                                }
-                            }
-                            outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                                val outputFormat = codec.outputFormat
-                                sampleRate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                                channelCount = outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                            }
-                        }
-                    }
-                } finally {
-                    codec.stop()
-                    codec.release()
-                }
-
-                val merged = ShortArray(totalSamples)
-                var offset = 0
-                for (chunk in pcmChunks) {
-                    System.arraycopy(chunk, 0, merged, offset, chunk.size)
-                    offset += chunk.size
-                }
-
-                val mono = if (channelCount > 1) downmixToMono(merged, channelCount) else merged
-                val resampled = if (sampleRate != TARGET_SAMPLE_RATE) {
-                    resampleLinear(mono, sampleRate, TARGET_SAMPLE_RATE)
-                } else {
-                    mono
-                }
-
-                return FloatArray(resampled.size) { i -> resampled[i] / 32768.0f }
-            } finally {
-                extractor.release()
+        input.use { stream ->
+            FileOutputStream(destFile).use { output ->
+                stream.copyTo(output)
             }
+        }
+        if (destFile.length() == 0L) {
+            throw IOException("Il file audio condiviso è vuoto")
+        }
+    }
+
+    fun decodeToPcm16k(filePath: String): FloatArray {
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(filePath)
+
+            var trackIndex = -1
+            var inputFormat: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("audio/")) {
+                    trackIndex = i
+                    inputFormat = format
+                    break
+                }
+            }
+            if (trackIndex < 0 || inputFormat == null) {
+                throw IOException("Nessuna traccia audio trovata nel file condiviso")
+            }
+            extractor.selectTrack(trackIndex)
+
+            val mime = inputFormat.getString(MediaFormat.KEY_MIME)!!
+            var sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+
+            val codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(inputFormat, null, null, 0)
+            codec.start()
+
+            val pcmChunks = mutableListOf<ShortArray>()
+            var totalSamples = 0
+            val bufferInfo = MediaCodec.BufferInfo()
+            var sawInputEos = false
+            var sawOutputEos = false
+
+            try {
+                while (!sawOutputEos) {
+                    if (!sawInputEos) {
+                        val inputIndex = codec.dequeueInputBuffer(10_000)
+                        if (inputIndex >= 0) {
+                            val inputBuffer = codec.getInputBuffer(inputIndex)!!
+                            val sampleSize = extractor.readSampleData(inputBuffer, 0)
+                            if (sampleSize < 0) {
+                                codec.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                sawInputEos = true
+                            } else {
+                                val presentationTimeUs = extractor.sampleTime
+                                codec.queueInputBuffer(inputIndex, 0, sampleSize, presentationTimeUs, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+
+                    val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                    when {
+                        outputIndex >= 0 -> {
+                            if (bufferInfo.size > 0) {
+                                val outputBuffer = codec.getOutputBuffer(outputIndex)!!
+                                outputBuffer.order(ByteOrder.LITTLE_ENDIAN)
+                                outputBuffer.position(bufferInfo.offset)
+                                outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                                val shortBuffer = outputBuffer.asShortBuffer()
+                                val chunk = ShortArray(shortBuffer.remaining())
+                                shortBuffer.get(chunk)
+                                pcmChunks.add(chunk)
+                                totalSamples += chunk.size
+                            }
+                            codec.releaseOutputBuffer(outputIndex, false)
+                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                                sawOutputEos = true
+                            }
+                        }
+                        outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            val outputFormat = codec.outputFormat
+                            sampleRate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                            channelCount = outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        }
+                    }
+                }
+            } finally {
+                codec.stop()
+                codec.release()
+            }
+
+            val merged = ShortArray(totalSamples)
+            var offset = 0
+            for (chunk in pcmChunks) {
+                System.arraycopy(chunk, 0, merged, offset, chunk.size)
+                offset += chunk.size
+            }
+
+            val mono = if (channelCount > 1) downmixToMono(merged, channelCount) else merged
+            val resampled = if (sampleRate != TARGET_SAMPLE_RATE) {
+                resampleLinear(mono, sampleRate, TARGET_SAMPLE_RATE)
+            } else {
+                mono
+            }
+
+            return FloatArray(resampled.size) { i -> resampled[i] / 32768.0f }
+        } finally {
+            extractor.release()
         }
     }
 

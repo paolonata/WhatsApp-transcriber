@@ -13,11 +13,22 @@ object TranscriptionStatusBus {
     private val _activeJobCount = MutableStateFlow(0)
     val activeJobCount: StateFlow<Int> = _activeJobCount
 
+    private val _activeEnhanceIds = MutableStateFlow<Set<Long>>(emptySet())
+    val activeEnhanceIds: StateFlow<Set<Long>> = _activeEnhanceIds
+
     fun jobStarted() {
         _activeJobCount.value += 1
     }
 
     fun jobFinished() {
         _activeJobCount.value = (_activeJobCount.value - 1).coerceAtLeast(0)
+    }
+
+    fun enhanceStarted(transcriptionId: Long) {
+        _activeEnhanceIds.value = _activeEnhanceIds.value + transcriptionId
+    }
+
+    fun enhanceFinished(transcriptionId: Long) {
+        _activeEnhanceIds.value = _activeEnhanceIds.value - transcriptionId
     }
 }

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.paolonata.whatsapptranscriber.BuildConfig
 import com.paolonata.whatsapptranscriber.data.Transcription
 import com.paolonata.whatsapptranscriber.model.ModelManager
+import com.paolonata.whatsapptranscriber.model.ModelTier
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -200,10 +201,10 @@ private fun SenderAvatar(sender: String, size: Dp) {
 @Composable
 private fun DebugFooter() {
     val context = LocalContext.current
-    val modelReady = remember { ModelManager(context).isModelReady() }
+    val fastReady = remember { ModelManager(context).isModelReady(ModelTier.FAST) }
     Text(
-        "v${BuildConfig.VERSION_NAME} · modello ${ModelManager.MODEL_FILE_NAME}" +
-            if (modelReady) " (scaricato)" else " (da scaricare)",
+        "v${BuildConfig.VERSION_NAME} · modello veloce ${ModelTier.FAST.fileName}" +
+            if (fastReady) " (scaricato)" else " (da scaricare)",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,

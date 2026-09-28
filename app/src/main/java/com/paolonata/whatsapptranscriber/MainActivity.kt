@@ -118,6 +118,7 @@ private fun AppRoot(viewModel: MainViewModel) {
     val transcriptions by viewModel.transcriptions.collectAsStateWithLifecycle()
     val recentSenders by viewModel.recentSenders.collectAsStateWithLifecycle()
     val activeJobCount by viewModel.activeJobCount.collectAsStateWithLifecycle()
+    val activeEnhanceIds by viewModel.activeEnhanceIds.collectAsStateWithLifecycle()
     val pendingShare by viewModel.pendingShare.collectAsStateWithLifecycle()
 
     BackHandler(enabled = screen !is Screen.Home) {
@@ -136,8 +137,10 @@ private fun AppRoot(viewModel: MainViewModel) {
             if (item != null) {
                 DetailScreen(
                     transcription = item,
+                    isEnhancing = current.id in activeEnhanceIds,
                     onBack = viewModel::showHome,
                     onDelete = { viewModel.deleteTranscription(item) },
+                    onEnhance = { viewModel.enhanceTranscription(item) },
                 )
             } else {
                 HomeScreen(

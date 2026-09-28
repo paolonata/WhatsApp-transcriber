@@ -11,4 +11,6 @@ data class Transcription(
     val durationMs: Long,
     val sourceLabel: String?,
     val sender: String? = null,
+    val audioFilePath: String? = null,
+    val isEnhanced: Boolean = false,
 )

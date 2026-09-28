@@ -28,6 +28,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val activeJobCount: StateFlow<Int> = TranscriptionStatusBus.activeJobCount
+    val activeEnhanceIds: StateFlow<Set<Long>> = TranscriptionStatusBus.activeEnhanceIds
 
     private val _screen = MutableStateFlow<Screen>(Screen.Home)
     val screen: StateFlow<Screen> = _screen
@@ -60,5 +61,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val share = _pendingShare.value ?: return
         _pendingShare.value = null
         TranscriptionService.start(getApplication(), share.uri, share.displayName, sender)
+    }
+
+    fun enhanceTranscription(transcription: Transcription) {
+        TranscriptionService.enhance(getApplication(), transcription.id)
     }
 }

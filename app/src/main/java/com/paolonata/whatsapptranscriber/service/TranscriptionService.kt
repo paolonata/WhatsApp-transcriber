@@ -20,6 +20,7 @@ import com.paolonata.whatsapptranscriber.data.AppDatabase
 import com.paolonata.whatsapptranscriber.data.Transcription
 import com.paolonata.whatsapptranscriber.data.TranscriptionRepository
 import com.paolonata.whatsapptranscriber.model.ModelManager
+import com.paolonata.whatsapptranscriber.model.ModelTier
 import com.paolonata.whatsapptranscriber.transcription.TranscriptionEngine
 import com.paolonata.whatsapptranscriber.transcription.TranscriptionStatusBus
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -43,7 +45,8 @@ class TranscriptionService : Service() {
 
     private lateinit var repository: TranscriptionRepository
     private lateinit var modelManager: ModelManager
-    private var engine: TranscriptionEngine? = null
+    private var fastEngine: TranscriptionEngine? = null
+    private var preciseEngine: TranscriptionEngine? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -54,79 +57,127 @@ class TranscriptionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val uri = intent?.getParcelableExtraCompat(EXTRA_URI) ?: return START_NOT_STICKY
-        val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME)
-        val sender = intent.getStringExtra(EXTRA_SENDER)
+        if (intent == null) return START_NOT_STICKY
 
         startForeground(FOREGROUND_NOTIFICATION_ID, buildOngoingNotification())
         activeJobs.incrementAndGet()
         TranscriptionStatusBus.jobStarted()
 
-        serviceScope.launch {
-            runCatching { process(uri, displayName, sender) }
-                .onFailure { postFailureNotification(it.message ?: "Si è verificato un errore imprevisto.") }
-
-            TranscriptionStatusBus.jobFinished()
-            if (activeJobs.decrementAndGet() <= 0) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+        when (intent.action) {
+            ACTION_ENHANCE -> {
+                val transcriptionId = intent.getLongExtra(EXTRA_TRANSCRIPTION_ID, -1L)
+                if (transcriptionId < 0) {
+                    finishJob()
+                    return START_NOT_STICKY
+                }
+                TranscriptionStatusBus.enhanceStarted(transcriptionId)
+                serviceScope.launch {
+                    runCatching { enhance(transcriptionId) }
+                        .onFailure { postFailureNotification(it.message ?: "Si è verificato un errore imprevisto.") }
+                    TranscriptionStatusBus.enhanceFinished(transcriptionId)
+                    finishJob()
+                }
+            }
+            else -> {
+                val uri = intent.getParcelableExtraCompat(EXTRA_URI)
+                if (uri == null) {
+                    finishJob()
+                    return START_NOT_STICKY
+                }
+                val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME)
+                val sender = intent.getStringExtra(EXTRA_SENDER)
+                serviceScope.launch {
+                    runCatching { transcribeNew(uri, displayName, sender) }
+                        .onFailure { postFailureNotification(it.message ?: "Si è verificato un errore imprevisto.") }
+                    finishJob()
+                }
             }
         }
 
         return START_NOT_STICKY
     }
 
-    private suspend fun process(uri: Uri, displayName: String?, sender: String?) {
-        if (!modelManager.isModelReady()) {
-            NotificationManagerCompat.from(this).safeNotify(
-                FOREGROUND_NOTIFICATION_ID,
-                buildOngoingNotification("Scaricamento del modello di trascrizione..."),
-            )
-            modelManager.ensureModelDownloaded { progress ->
-                NotificationManagerCompat.from(this).safeNotify(
-                    FOREGROUND_NOTIFICATION_ID,
-                    buildOngoingNotification("Scaricamento del modello: ${(progress * 100).toInt()}%"),
-                )
-            }
+    private fun finishJob() {
+        TranscriptionStatusBus.jobFinished()
+        if (activeJobs.decrementAndGet() <= 0) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
+    }
 
-        NotificationManagerCompat.from(this).safeNotify(
-            FOREGROUND_NOTIFICATION_ID,
-            buildOngoingNotification("Lettura del file audio..."),
-        )
-        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(applicationContext, uri) }
-        if (pcm.isEmpty()) {
-            postFailureNotification("Non è stato possibile leggere l'audio condiviso.")
-            return
-        }
+    private suspend fun transcribeNew(uri: Uri, displayName: String?, sender: String?) {
+        setOngoing("Salvataggio dell'audio...")
+        val audioDir = File(applicationContext.filesDir, "audio").apply { mkdirs() }
+        val localAudioFile = File(audioDir, "${System.currentTimeMillis()}_${(0..9999).random()}.audio")
+        withContext(Dispatchers.IO) { AudioDecoder.copyToLocalFile(applicationContext, uri, localAudioFile) }
 
-        NotificationManagerCompat.from(this).safeNotify(
-            FOREGROUND_NOTIFICATION_ID,
-            buildOngoingNotification("Trascrizione in corso...\nPer audio lunghi può richiedere qualche minuto."),
-        )
-        val transcriptionEngine = getOrCreateEngine()
-        val text = transcriptionEngine.transcribe(pcm)
-        if (text.isBlank()) {
-            postFailureNotification("Non è stato riconosciuto alcun testo in questo audio.")
-            return
-        }
+        val result = runTranscription(localAudioFile, ModelTier.FAST) ?: return
 
-        val durationMs = (pcm.size / 16000.0 * 1000).toLong()
         val timestamp = WhatsAppMetadata.parseTimestampFromFileName(displayName) ?: System.currentTimeMillis()
         val id = repository.insert(
             Transcription(
                 timestamp = timestamp,
-                text = text,
-                durationMs = durationMs,
+                text = result.text,
+                durationMs = result.durationMs,
                 sourceLabel = displayName,
                 sender = sender,
+                audioFilePath = localAudioFile.absolutePath,
             ),
         )
-        postSuccessNotification(id, sender)
+        postSuccessNotification(id, title = if (sender != null) "Trascrizione pronta - $sender" else "Trascrizione pronta")
     }
 
-    private fun getOrCreateEngine(): TranscriptionEngine {
-        return engine ?: TranscriptionEngine.create(modelManager.modelFile()).also { engine = it }
+    private suspend fun enhance(transcriptionId: Long) {
+        val transcription = repository.getById(transcriptionId)
+        val audioPath = transcription?.audioFilePath
+        if (transcription == null || audioPath == null || !File(audioPath).exists()) {
+            postFailureNotification("L'audio originale non è più disponibile per migliorare questa trascrizione.")
+            return
+        }
+
+        val result = runTranscription(File(audioPath), ModelTier.PRECISE) ?: return
+        repository.updateEnhancedText(transcriptionId, result.text)
+        postSuccessNotification(transcriptionId, title = "Precisione migliorata")
+    }
+
+    private data class TranscriptionResult(val text: String, val durationMs: Long)
+
+    /** Returns the transcription result, or null if a failure notification was already posted. */
+    private suspend fun runTranscription(audioFile: File, tier: ModelTier): TranscriptionResult? {
+        if (!modelManager.isModelReady(tier)) {
+            setOngoing("Scaricamento del modello di trascrizione...")
+            modelManager.ensureModelDownloaded(tier) { progress ->
+                setOngoing("Scaricamento del modello: ${(progress * 100).toInt()}%")
+            }
+        }
+
+        setOngoing("Lettura del file audio...")
+        val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(audioFile.absolutePath) }
+        if (pcm.isEmpty()) {
+            postFailureNotification("Non è stato possibile leggere l'audio condiviso.")
+            return null
+        }
+
+        setOngoing("Trascrizione in corso...\nPer audio lunghi può richiedere qualche minuto.")
+        val engine = getOrCreateEngine(tier)
+        val text = engine.transcribe(pcm)
+        if (text.isBlank()) {
+            postFailureNotification("Non è stato riconosciuto alcun testo in questo audio.")
+            return null
+        }
+        val durationMs = (pcm.size / 16000.0 * 1000).toLong()
+        return TranscriptionResult(text, durationMs)
+    }
+
+    private fun getOrCreateEngine(tier: ModelTier): TranscriptionEngine {
+        return when (tier) {
+            ModelTier.FAST -> fastEngine ?: TranscriptionEngine.create(modelManager.modelFile(tier)).also { fastEngine = it }
+            ModelTier.PRECISE -> preciseEngine ?: TranscriptionEngine.create(modelManager.modelFile(tier)).also { preciseEngine = it }
+        }
+    }
+
+    private fun setOngoing(message: String) {
+        NotificationManagerCompat.from(this).safeNotify(FOREGROUND_NOTIFICATION_ID, buildOngoingNotification(message))
     }
 
     private fun buildOngoingNotification(message: String = "In preparazione..."): Notification {
@@ -140,7 +191,7 @@ class TranscriptionService : Service() {
             .build()
     }
 
-    private fun postSuccessNotification(transcriptionId: Long, sender: String?) {
+    private fun postSuccessNotification(transcriptionId: Long, title: String) {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_OPEN_TRANSCRIPTION_ID, transcriptionId)
@@ -151,7 +202,6 @@ class TranscriptionService : Service() {
             openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val title = if (sender != null) "Trascrizione pronta - $sender" else "Trascrizione pronta"
         val notification = NotificationCompat.Builder(this, WhatsAppTranscriberApp.RESULT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText("Tocca per leggere il testo")
@@ -175,9 +225,12 @@ class TranscriptionService : Service() {
     }
 
     companion object {
+        private const val ACTION_ENHANCE = "com.paolonata.whatsapptranscriber.action.ENHANCE"
+
         private const val EXTRA_URI = "extra_uri"
         private const val EXTRA_DISPLAY_NAME = "extra_display_name"
         private const val EXTRA_SENDER = "extra_sender"
+        private const val EXTRA_TRANSCRIPTION_ID = "extra_transcription_id"
 
         private const val FOREGROUND_NOTIFICATION_ID = 1
         private const val RESULT_NOTIFICATION_ID_BASE = 1000
@@ -187,6 +240,14 @@ class TranscriptionService : Service() {
                 putExtra(EXTRA_URI, uri)
                 putExtra(EXTRA_DISPLAY_NAME, displayName)
                 putExtra(EXTRA_SENDER, sender)
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun enhance(context: Context, transcriptionId: Long) {
+            val intent = Intent(context, TranscriptionService::class.java).apply {
+                action = ACTION_ENHANCE
+                putExtra(EXTRA_TRANSCRIPTION_ID, transcriptionId)
             }
             ContextCompat.startForegroundService(context, intent)
         }

@@ -8,7 +8,7 @@ App Android nativa per trascrivere i vocali di WhatsApp in testo, **interamente 
 2. Scegli **Trascrivi WhatsApp** dall'elenco delle app.
 3. Un dialog veloce chiede chi ha mandato il vocale (o si può saltare) - WhatsApp non passa questa informazione alle app per motivi di privacy, quindi va indicata a mano; i nomi già usati restano come scorciatoie a un tocco.
 4. La trascrizione parte in un **servizio in background**: si può chiudere l'app, arriva una notifica quando il testo è pronto (o se qualcosa è andato storto). Motore [whisper.cpp](https://github.com/ggerganov/whisper.cpp), vendorizzato come submodule in `third_party/whisper.cpp`.
-5. Il testo compare a schermo, con possibilità di ingrandire il carattere, farlo leggere ad alta voce (sintesi vocale), copiarlo o ricondividerlo.
+5. Il testo compare a schermo, con possibilità di ingrandire il carattere, farlo leggere ad alta voce (sintesi vocale), copiarlo o ricondividerlo. Se la trascrizione automatica ha qualche parola imprecisa, il pulsante **"Migliora precisione"** la rielabora in background con un modello più accurato (più lento, per questo non è quello usato di default).
 
 Tutte le trascrizioni restano salvate nello storico dell'app (database locale), raggruppate per mittente, e si possono eliminare direttamente dall'elenco senza doverle aprire.
 
@@ -16,9 +16,12 @@ La lingua di trascrizione è fissata all'**italiano** (patchata nel bridge JNI d
 
 ## Privacy
 
-- **Nessuna IA cloud**: la trascrizione avviene con un modello whisper.cpp eseguito localmente sulla CPU del telefono.
-- **Un'unica chiamata di rete**, la prima volta che si usa l'app: il download del modello di trascrizione (un file pubblico, statico, `medium` quantizzato, ~510 MB, da [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)). Non contiene né trasmette alcun dato personale.
-- Dopo il primo avvio l'app funziona **completamente offline**.
+- **Nessuna IA cloud**: la trascrizione avviene con whisper.cpp eseguito localmente sulla CPU del telefono (niente GPU/NPU su Android, quindi la velocità dipende molto dalla dimensione del modello).
+- **Due modelli, scaricati solo quando servono** (file pubblici e statici da [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp), nessun dato personale coinvolto):
+  - `small` quantizzato (~190 MB) — usato automaticamente per ogni vocale condiviso, veloce.
+  - `medium` quantizzato (~510 MB) — scaricato solo alla prima volta che si tocca "Migliora precisione".
+- L'audio originale di ogni vocale viene salvato in locale (memoria privata dell'app) così "Migliora precisione" può rielaborarlo anche giorni dopo, senza bisogno di ricondividerlo da WhatsApp; viene eliminato insieme alla trascrizione.
+- A parte i download dei modelli, l'app funziona **completamente offline**.
 
 ## Struttura del progetto
 
