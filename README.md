@@ -17,7 +17,7 @@ La lingua di trascrizione è fissata all'**italiano** (patchata nel bridge JNI d
 ## Privacy
 
 - **Nessuna IA cloud**: la trascrizione avviene con un modello whisper.cpp eseguito localmente sulla CPU del telefono.
-- **Un'unica chiamata di rete**, la prima volta che si usa l'app: il download del modello di trascrizione (un file pubblico, statico, `large-v3-turbo` quantizzato, ~550 MB, da [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)). Non contiene né trasmette alcun dato personale.
+- **Un'unica chiamata di rete**, la prima volta che si usa l'app: il download del modello di trascrizione (un file pubblico, statico, `medium` quantizzato, ~510 MB, da [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)). Non contiene né trasmette alcun dato personale.
 - Dopo il primo avvio l'app funziona **completamente offline**.
 
 ## Struttura del progetto

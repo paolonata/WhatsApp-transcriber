@@ -20,9 +20,16 @@ import java.net.URL
 class ModelManager(private val context: Context) {
 
     companion object {
+        // large-v3-turbo's audio encoder is identical (and just as costly) to the
+        // full large-v3 model - only its decoder is lighter. whisper.cpp on
+        // Android runs on CPU only (no GPU/NPU acceleration), so that encoder
+        // cost dominates and made a 5-minute voice note take 30+ minutes to
+        // transcribe. "medium" has a much shallower encoder (24 layers vs 32)
+        // and is a far better fit for on-device CPU inference, while still
+        // being noticeably more accurate on unclear speech than "small".
         private const val MODEL_URL =
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
-        private const val MODEL_FILE_NAME = "ggml-large-v3-turbo-q5_0.bin"
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin"
+        private const val MODEL_FILE_NAME = "ggml-medium-q5_0.bin"
     }
 
     private val modelsDir: File
