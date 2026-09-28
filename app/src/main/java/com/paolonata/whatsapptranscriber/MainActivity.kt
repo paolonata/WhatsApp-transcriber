@@ -119,6 +119,7 @@ private fun AppRoot(viewModel: MainViewModel) {
     val recentSenders by viewModel.recentSenders.collectAsStateWithLifecycle()
     val activeJobCount by viewModel.activeJobCount.collectAsStateWithLifecycle()
     val activeEnhanceIds by viewModel.activeEnhanceIds.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val pendingShare by viewModel.pendingShare.collectAsStateWithLifecycle()
 
     BackHandler(enabled = screen !is Screen.Home) {
@@ -129,6 +130,7 @@ private fun AppRoot(viewModel: MainViewModel) {
         is Screen.Home -> HomeScreen(
             transcriptions = transcriptions,
             activeJobCount = activeJobCount,
+            statusMessage = statusMessage,
             onOpen = viewModel::openDetail,
             onDelete = viewModel::deleteTranscription,
         )
@@ -146,6 +148,7 @@ private fun AppRoot(viewModel: MainViewModel) {
                 HomeScreen(
                     transcriptions = transcriptions,
                     activeJobCount = activeJobCount,
+                    statusMessage = statusMessage,
                     onOpen = viewModel::openDetail,
                     onDelete = viewModel::deleteTranscription,
                 )

@@ -65,6 +65,7 @@ private val AVATAR_COLORS = listOf(
 fun HomeScreen(
     transcriptions: List<Transcription>,
     activeJobCount: Int,
+    statusMessage: String?,
     onOpen: (Long) -> Unit,
     onDelete: (Transcription) -> Unit,
 ) {
@@ -99,7 +100,7 @@ fun HomeScreen(
                         item { InstructionsCard() }
 
                         if (activeJobCount > 0) {
-                            item { ActiveJobBanner(activeJobCount) }
+                            item { ActiveJobBanner(activeJobCount, statusMessage) }
                         }
 
                         groups.forEach { (sender, entries) ->
@@ -138,7 +139,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ActiveJobBanner(count: Int) {
+private fun ActiveJobBanner(count: Int, statusMessage: String?) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(
             modifier = Modifier
@@ -148,10 +149,15 @@ private fun ActiveJobBanner(count: Int) {
         ) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
             Spacer(Modifier.width(12.dp))
-            Text(
-                if (count == 1) "Trascrizione in corso..." else "$count trascrizioni in corso...",
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            Column {
+                Text(
+                    if (count == 1) "Trascrizione in corso" else "$count trascrizioni in corso",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (statusMessage != null) {
+                    Text(statusMessage, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     }
 }

@@ -29,6 +29,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val activeJobCount: StateFlow<Int> = TranscriptionStatusBus.activeJobCount
     val activeEnhanceIds: StateFlow<Set<Long>> = TranscriptionStatusBus.activeEnhanceIds
+    val statusMessage: StateFlow<String?> = TranscriptionStatusBus.statusMessage
 
     private val _screen = MutableStateFlow<Screen>(Screen.Home)
     val screen: StateFlow<Screen> = _screen

@@ -178,6 +178,7 @@ class TranscriptionService : Service() {
 
     private fun setOngoing(message: String) {
         NotificationManagerCompat.from(this).safeNotify(FOREGROUND_NOTIFICATION_ID, buildOngoingNotification(message))
+        TranscriptionStatusBus.updateStatus(message)
     }
 
     private fun buildOngoingNotification(message: String = "In preparazione..."): Notification {
