@@ -29,7 +29,11 @@ class ModelManager(private val context: Context) {
         // being noticeably more accurate on unclear speech than "small".
         private const val MODEL_URL =
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin"
-        private const val MODEL_FILE_NAME = "ggml-medium-q5_0.bin"
+
+        // Public so the UI can show which model is actually configured/downloaded
+        // on this device - handy for telling "still the old app version" apart
+        // from "new version, model just hasn't been (re)downloaded yet".
+        const val MODEL_FILE_NAME = "ggml-medium-q5_0.bin"
     }
 
     private val modelsDir: File

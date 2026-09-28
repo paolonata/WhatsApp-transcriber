@@ -40,11 +40,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.paolonata.whatsapptranscriber.BuildConfig
 import com.paolonata.whatsapptranscriber.data.Transcription
+import com.paolonata.whatsapptranscriber.model.ModelManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -77,39 +80,42 @@ fun HomeScreen(
             )
         },
     ) { padding ->
-        if (transcriptions.isEmpty() && activeJobCount == 0) {
-            EmptyState(modifier = Modifier.padding(padding))
-        } else {
-            val groups = transcriptions
-                .groupBy { it.sender?.trim().takeUnless { s -> s.isNullOrBlank() } ?: UNKNOWN_SENDER }
-                .toList()
-                .sortedByDescending { (_, entries) -> entries.maxOf { it.timestamp } }
+        Column(Modifier.padding(padding)) {
+            Box(Modifier.weight(1f)) {
+                if (transcriptions.isEmpty() && activeJobCount == 0) {
+                    EmptyState()
+                } else {
+                    val groups = transcriptions
+                        .groupBy { it.sender?.trim().takeUnless { s -> s.isNullOrBlank() } ?: UNKNOWN_SENDER }
+                        .toList()
+                        .sortedByDescending { (_, entries) -> entries.maxOf { it.timestamp } }
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item { InstructionsCard() }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item { InstructionsCard() }
 
-                if (activeJobCount > 0) {
-                    item { ActiveJobBanner(activeJobCount) }
-                }
+                        if (activeJobCount > 0) {
+                            item { ActiveJobBanner(activeJobCount) }
+                        }
 
-                groups.forEach { (sender, entries) ->
-                    item(key = "header_$sender") { SenderHeader(sender, entries.size) }
-                    items(entries, key = { it.id }) { item ->
-                        TranscriptionRow(
-                            item = item,
-                            sender = sender,
-                            onClick = { onOpen(item.id) },
-                            onDeleteClick = { pendingDelete = item },
-                        )
+                        groups.forEach { (sender, entries) ->
+                            item(key = "header_$sender") { SenderHeader(sender, entries.size) }
+                            items(entries, key = { it.id }) { item ->
+                                TranscriptionRow(
+                                    item = item,
+                                    sender = sender,
+                                    onClick = { onOpen(item.id) },
+                                    onDeleteClick = { pendingDelete = item },
+                                )
+                            }
+                        }
                     }
                 }
             }
+            DebugFooter()
         }
     }
 
@@ -189,6 +195,22 @@ private fun SenderAvatar(sender: String, size: Dp) {
             )
         }
     }
+}
+
+@Composable
+private fun DebugFooter() {
+    val context = LocalContext.current
+    val modelReady = remember { ModelManager(context).isModelReady() }
+    Text(
+        "v${BuildConfig.VERSION_NAME} · modello ${ModelManager.MODEL_FILE_NAME}" +
+            if (modelReady) " (scaricato)" else " (da scaricare)",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp),
+    )
 }
 
 @Composable
