@@ -68,7 +68,18 @@ fun DetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(formatTimestamp(transcription.timestamp), style = MaterialTheme.typography.titleMedium) },
+                title = {
+                    Column {
+                        Text(
+                            transcription.sender?.takeIf { it.isNotBlank() } ?: "Sconosciuto",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            formatTimestamp(transcription.timestamp),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = "Indietro")

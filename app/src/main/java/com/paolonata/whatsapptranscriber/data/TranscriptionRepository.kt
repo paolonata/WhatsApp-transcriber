@@ -10,4 +10,6 @@ class TranscriptionRepository(private val dao: TranscriptionDao) {
     suspend fun delete(transcription: Transcription) = dao.delete(transcription)
 
     suspend fun getById(id: Long): Transcription? = dao.getById(id)
+
+    fun observeRecentSenders(): Flow<List<String>> = dao.observeRecentSenders()
 }

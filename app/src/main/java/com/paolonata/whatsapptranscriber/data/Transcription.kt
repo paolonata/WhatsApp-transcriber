@@ -10,4 +10,5 @@ data class Transcription(
     val text: String,
     val durationMs: Long,
     val sourceLabel: String?,
+    val sender: String? = null,
 )

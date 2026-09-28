@@ -19,4 +19,10 @@ interface TranscriptionDao {
 
     @Query("SELECT * FROM transcriptions WHERE id = :id")
     suspend fun getById(id: Long): Transcription?
+
+    @Query(
+        "SELECT sender FROM transcriptions WHERE sender IS NOT NULL AND sender != '' " +
+            "GROUP BY sender ORDER BY MAX(timestamp) DESC LIMIT 8",
+    )
+    fun observeRecentSenders(): Flow<List<String>>
 }
