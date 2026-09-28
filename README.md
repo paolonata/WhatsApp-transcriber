@@ -11,6 +11,8 @@ App Android nativa per trascrivere i vocali di WhatsApp in testo, **interamente 
 
 Tutte le trascrizioni restano salvate nello storico dell'app (database locale), così si possono rileggere in qualsiasi momento.
 
+La lingua di trascrizione è fissata all'**italiano** (patchata nel bridge JNI di whisper.cpp, vedi `scripts/patch-whisper-language.sh`, dato che di default è forzata all'inglese). Per un'altra lingua principale, cambia il codice lingua in quello script.
+
 ## Privacy
 
 - **Nessuna IA cloud**: la trascrizione avviene con un modello whisper.cpp eseguito localmente sulla CPU del telefono.
@@ -46,5 +48,6 @@ Richiede Android Studio (o Gradle + Android SDK/NDK `25.2.9519653` da linea di c
 
 ```bash
 git submodule update --init --recursive
+./scripts/patch-whisper-language.sh
 ./gradlew assembleDebug
 ```
