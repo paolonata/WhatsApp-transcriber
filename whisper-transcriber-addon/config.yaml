@@ -1,0 +1,25 @@
+name: "Whisper Transcriber"
+version: "1.0.0"
+slug: "whisper_transcriber"
+description: "Server di trascrizione offline per l'app Trascrivi WhatsApp - whisper.cpp in locale, nessun dato esce dalla rete di casa"
+url: "https://github.com/paolonata/WhatsApp-transcriber"
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: false
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: "API HTTP di trascrizione"
+options:
+  api_token: "cambia-questo-token"
+  fast_model: "small-q5_1"
+  precise_model: "medium-q5_0"
+  threads: 4
+schema:
+  api_token: str
+  fast_model: list(tiny-q5_1|base-q5_1|small-q5_1|small|medium-q5_0)
+  precise_model: list(small-q5_1|medium-q5_0|medium|large-v3-turbo-q5_0)
+  threads: int(1,4)

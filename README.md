@@ -23,10 +23,21 @@ La lingua di trascrizione è fissata all'**italiano** (patchata nel bridge JNI d
 - L'audio originale di ogni vocale viene salvato in locale (memoria privata dell'app) così "Migliora precisione" può rielaborarlo anche giorni dopo, senza bisogno di ricondividerlo da WhatsApp; viene eliminato insieme alla trascrizione.
 - A parte i download dei modelli, l'app funziona **completamente offline**.
 
+## Server di trascrizione locale (opzionale)
+
+Il telefono (specialmente uno non recentissimo) resta comunque limitato: whisper.cpp su Android gira solo su CPU. Chi ha un **Raspberry Pi 4** (o superiore) con **Home Assistant OS** può installare l'add-on in `whisper-transcriber-addon/` per trascrivere su hardware più potente, restando comunque sulla propria rete di casa (nessun server di terzi coinvolto):
+
+1. In Home Assistant: **Impostazioni → Add-on → Negozio add-on → ⋮ → Repository**, aggiungi `https://github.com/paolonata/WhatsApp-transcriber`.
+2. Installa **Whisper Transcriber**, imposta un `api_token` a tua scelta nella configurazione, avvialo.
+3. Nell'app, tocca l'icona ⚙️ in alto a destra nella schermata principale e inserisci host (es. `homeassistant.local`), porta (`8765`) e lo stesso token.
+
+Quando sei sulla rete di casa, l'app usa il Pi (molto più veloce); fuori casa passa automaticamente al modello sul telefono, senza bisogno di fare nulla. Dettagli nel [README dell'add-on](whisper-transcriber-addon/README.md).
+
 ## Struttura del progetto
 
 - `app/` — applicazione Android (Kotlin + Jetpack Compose)
 - `third_party/whisper.cpp` — submodule git con il motore di trascrizione (modulo `:lib` incluso da `examples/whisper.android/lib`)
+- `whisper-transcriber-addon/` — add-on Home Assistant opzionale per trascrivere su un Raspberry Pi invece che sul telefono
 - `.github/workflows/android-release.yml` — compila, firma e pubblica l'APK come GitHub Release ad ogni push
 
 ## Scaricare e installare l'app

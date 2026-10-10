@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,11 +71,17 @@ fun HomeScreen(
     onDelete: (Transcription) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<Transcription?>(null) }
+    var showServerSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Trascrizioni", style = MaterialTheme.typography.titleLarge) },
+                actions = {
+                    IconButton(onClick = { showServerSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Impostazioni server", tint = Color.White)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = Color.White,
@@ -135,6 +142,10 @@ fun HomeScreen(
                 TextButton(onClick = { pendingDelete = null }) { Text("Annulla") }
             },
         )
+    }
+
+    if (showServerSettings) {
+        ServerSettingsDialog(onDismiss = { showServerSettings = false })
     }
 }
 

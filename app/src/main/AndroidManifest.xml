@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Used only once, on first launch, to download the offline speech-recognition
-         model file (a public static file, no personal data). Audio and transcribed
-         text are never sent over the network. -->
+    <!-- Used to download the offline speech-recognition model files (public,
+         static, no personal data) and, optionally, to reach a user-configured
+         transcription server on the home network (see whisper-transcriber-addon/).
+         Audio and transcribed text are never sent anywhere else. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -21,7 +22,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WhatsAppTranscriber">
+        android:theme="@style/Theme.WhatsAppTranscriber"
+        android:usesCleartextTraffic="true"
 
         <activity
             android:name=".MainActivity"

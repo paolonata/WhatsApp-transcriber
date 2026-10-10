@@ -21,6 +21,8 @@ import com.paolonata.whatsapptranscriber.data.Transcription
 import com.paolonata.whatsapptranscriber.data.TranscriptionRepository
 import com.paolonata.whatsapptranscriber.model.ModelManager
 import com.paolonata.whatsapptranscriber.model.ModelTier
+import com.paolonata.whatsapptranscriber.server.ServerSettings
+import com.paolonata.whatsapptranscriber.server.TranscriptionServerClient
 import com.paolonata.whatsapptranscriber.transcription.TranscriptionEngine
 import com.paolonata.whatsapptranscriber.transcription.TranscriptionStatusBus
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +47,7 @@ class TranscriptionService : Service() {
 
     private lateinit var repository: TranscriptionRepository
     private lateinit var modelManager: ModelManager
+    private lateinit var serverSettings: ServerSettings
     private var fastEngine: TranscriptionEngine? = null
     private var preciseEngine: TranscriptionEngine? = null
 
@@ -52,6 +55,7 @@ class TranscriptionService : Service() {
         super.onCreate()
         repository = TranscriptionRepository(AppDatabase.getInstance(applicationContext).transcriptionDao())
         modelManager = ModelManager(applicationContext)
+        serverSettings = ServerSettings(applicationContext)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -144,6 +148,19 @@ class TranscriptionService : Service() {
 
     /** Returns the transcription result, or null if a failure notification was already posted. */
     private suspend fun runTranscription(audioFile: File, tier: ModelTier): TranscriptionResult? {
+        val server = serverSettings.get()
+        if (server.enabled && server.isConfigured) {
+            setOngoing("Provo il server sulla rete di casa...")
+            try {
+                val text = TranscriptionServerClient.transcribe(server, audioFile, tier)
+                // Duration isn't shown anywhere in the UI yet, and the server
+                // does its own decoding - no PCM sample count to derive it from here.
+                return TranscriptionResult(text, durationMs = 0L)
+            } catch (e: Exception) {
+                setOngoing("Server non raggiungibile, uso il modello sul telefono...")
+            }
+        }
+
         if (!modelManager.isModelReady(tier)) {
             setOngoing("Scaricamento del modello di trascrizione...")
             modelManager.ensureModelDownloaded(tier) { progress ->
