@@ -27,8 +27,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val recentSenders: StateFlow<List<String>> = repository.observeRecentSenders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val activeJobCount: StateFlow<Int> = TranscriptionStatusBus.activeJobCount
-    val activeEnhanceIds: StateFlow<Set<Long>> = TranscriptionStatusBus.activeEnhanceIds
+    val activeJobIds: StateFlow<Set<String>> = TranscriptionStatusBus.activeJobIds
+    val enhanceJobIds: StateFlow<Map<Long, String>> = TranscriptionStatusBus.enhanceJobIds
     val statusMessage: StateFlow<String?> = TranscriptionStatusBus.statusMessage
 
     private val _screen = MutableStateFlow<Screen>(Screen.Home)
@@ -66,5 +66,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enhanceTranscription(transcription: Transcription) {
         TranscriptionService.enhance(getApplication(), transcription.id)
+    }
+
+    fun cancelJob(jobId: String) {
+        TranscriptionService.cancel(getApplication(), jobId)
+    }
+
+    fun cancelAllJobs() {
+        activeJobIds.value.forEach { cancelJob(it) }
     }
 }

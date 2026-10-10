@@ -7,7 +7,7 @@ App Android nativa per trascrivere i vocali di WhatsApp in testo, **interamente 
 1. Apri un vocale su WhatsApp e tocca **Condividi**.
 2. Scegli **Trascrivi WhatsApp** dall'elenco delle app.
 3. Un dialog veloce chiede chi ha mandato il vocale (o si può saltare) - WhatsApp non passa questa informazione alle app per motivi di privacy, quindi va indicata a mano; i nomi già usati restano come scorciatoie a un tocco.
-4. La trascrizione parte in un **servizio in background**: si può chiudere l'app, arriva una notifica quando il testo è pronto (o se qualcosa è andato storto). Motore [whisper.cpp](https://github.com/ggerganov/whisper.cpp), vendorizzato come submodule in `third_party/whisper.cpp`.
+4. La trascrizione parte in un **servizio in background**: si può chiudere l'app, arriva una notifica quando il testo è pronto (o se qualcosa è andato storto), e si può **annullare** in qualsiasi momento (pulsante "Annulla" nel banner di avanzamento o nella schermata di dettaglio durante "Migliora precisione") - se stai usando il server sul Pi, l'annullamento spegne subito anche l'elaborazione lì. Motore [whisper.cpp](https://github.com/ggerganov/whisper.cpp), vendorizzato come submodule in `third_party/whisper.cpp`.
 5. Il testo compare a schermo, con possibilità di ingrandire il carattere, farlo leggere ad alta voce (sintesi vocale), copiarlo o ricondividerlo. Se la trascrizione automatica ha qualche parola imprecisa, il pulsante **"Migliora precisione"** la rielabora in background con un modello più accurato (più lento, per questo non è quello usato di default).
 
 Tutte le trascrizioni restano salvate nello storico dell'app (database locale), raggruppate per mittente, e si possono eliminare direttamente dall'elenco senza doverle aprire.

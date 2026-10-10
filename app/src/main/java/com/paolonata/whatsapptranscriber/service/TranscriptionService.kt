@@ -31,6 +31,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -42,7 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class TranscriptionService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val activeJobs = AtomicInteger(0)
+    private val jobControls = ConcurrentHashMap<String, JobControl>()
     private val nextNotificationId = AtomicInteger(RESULT_NOTIFICATION_ID_BASE)
 
     private lateinit var repository: TranscriptionRepository
@@ -50,6 +52,11 @@ class TranscriptionService : Service() {
     private lateinit var serverSettings: ServerSettings
     private var fastEngine: TranscriptionEngine? = null
     private var preciseEngine: TranscriptionEngine? = null
+
+    private class JobControl(val jobId: String, val transcriptionId: Long?) {
+        @Volatile var cancelled = false
+        @Volatile var connectionHandle: TranscriptionServerClient.ConnectionHandle? = null
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -63,37 +70,65 @@ class TranscriptionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_NOT_STICKY
 
+        // Always call this first, even for a cancel: Android requires every
+        // startForegroundService() call to be followed by startForeground()
+        // promptly, regardless of what the service ends up doing - skipping
+        // it here would risk a crash if this cancel is ever the intent that
+        // actually (re)starts the service process.
         startForeground(FOREGROUND_NOTIFICATION_ID, buildOngoingNotification())
-        activeJobs.incrementAndGet()
-        TranscriptionStatusBus.jobStarted()
+
+        if (intent.action == ACTION_CANCEL) {
+            handleCancel(intent.getStringExtra(EXTRA_JOB_ID))
+            if (jobControls.isEmpty()) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
 
         when (intent.action) {
             ACTION_ENHANCE -> {
                 val transcriptionId = intent.getLongExtra(EXTRA_TRANSCRIPTION_ID, -1L)
                 if (transcriptionId < 0) {
-                    finishJob()
+                    if (jobControls.isEmpty()) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
                     return START_NOT_STICKY
                 }
-                TranscriptionStatusBus.enhanceStarted(transcriptionId)
+                val jobId = UUID.randomUUID().toString()
+                val control = JobControl(jobId, transcriptionId)
+                jobControls[jobId] = control
+                TranscriptionStatusBus.jobStarted(jobId)
+                TranscriptionStatusBus.enhanceStarted(transcriptionId, jobId)
                 serviceScope.launch {
-                    runCatching { enhance(transcriptionId) }
-                        .onFailure { postFailureNotification(it.message ?: "Si è verificato un errore imprevisto.") }
+                    runCatching { enhance(transcriptionId, control) }
+                        .onFailure { e ->
+                            if (e !is TranscriptionServerClient.CancelledException) {
+                                postFailureNotification(e.message ?: "Si è verificato un errore imprevisto.")
+                            }
+                        }
                     TranscriptionStatusBus.enhanceFinished(transcriptionId)
-                    finishJob()
+                    finishJob(jobId)
                 }
             }
             else -> {
                 val uri = intent.getParcelableExtraCompat(EXTRA_URI)
                 if (uri == null) {
-                    finishJob()
+                    if (jobControls.isEmpty()) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
                     return START_NOT_STICKY
                 }
                 val displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME)
                 val sender = intent.getStringExtra(EXTRA_SENDER)
+                val jobId = UUID.randomUUID().toString()
+                val control = JobControl(jobId, transcriptionId = null)
+                jobControls[jobId] = control
+                TranscriptionStatusBus.jobStarted(jobId)
                 serviceScope.launch {
-                    runCatching { transcribeNew(uri, displayName, sender) }
-                        .onFailure { postFailureNotification(it.message ?: "Si è verificato un errore imprevisto.") }
-                    finishJob()
+                    runCatching { transcribeNew(uri, displayName, sender, control) }
+                        .onFailure { e ->
+                            if (e !is TranscriptionServerClient.CancelledException) {
+                                postFailureNotification(e.message ?: "Si è verificato un errore imprevisto.")
+                            }
+                        }
+                    finishJob(jobId)
                 }
             }
         }
@@ -101,21 +136,43 @@ class TranscriptionService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun finishJob() {
-        TranscriptionStatusBus.jobFinished()
-        if (activeJobs.decrementAndGet() <= 0) {
+    private fun handleCancel(jobId: String?) {
+        val control = jobId?.let { jobControls[it] } ?: return
+        control.cancelled = true
+        control.connectionHandle?.cancel()
+
+        // Reflect the cancellation in the UI right away: a connection we just
+        // disconnected unblocks almost immediately, but whisper.cpp running
+        // on-device can't be interrupted mid-computation, so the underlying
+        // coroutine (and finishJob) may not actually wind down for a while.
+        TranscriptionStatusBus.jobFinished(jobId)
+        control.transcriptionId?.let { TranscriptionStatusBus.enhanceFinished(it) }
+        setOngoing("Annullamento in corso...")
+
+        val server = serverSettings.get()
+        if (server.enabled && server.isConfigured) {
+            serviceScope.launch {
+                TranscriptionServerClient.cancel(server, control.jobId)
+            }
+        }
+    }
+
+    private fun finishJob(jobId: String) {
+        jobControls.remove(jobId)
+        TranscriptionStatusBus.jobFinished(jobId)
+        if (jobControls.isEmpty()) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
-    private suspend fun transcribeNew(uri: Uri, displayName: String?, sender: String?) {
+    private suspend fun transcribeNew(uri: Uri, displayName: String?, sender: String?, control: JobControl) {
         setOngoing("Salvataggio dell'audio...")
         val audioDir = File(applicationContext.filesDir, "audio").apply { mkdirs() }
         val localAudioFile = File(audioDir, "${System.currentTimeMillis()}_${(0..9999).random()}.audio")
         withContext(Dispatchers.IO) { AudioDecoder.copyToLocalFile(applicationContext, uri, localAudioFile) }
 
-        val result = runTranscription(localAudioFile, ModelTier.FAST) ?: return
+        val result = runTranscription(localAudioFile, ModelTier.FAST, control) ?: return
 
         val timestamp = WhatsAppMetadata.parseTimestampFromFileName(displayName) ?: System.currentTimeMillis()
         val id = repository.insert(
@@ -131,7 +188,7 @@ class TranscriptionService : Service() {
         postSuccessNotification(id, title = if (sender != null) "Trascrizione pronta - $sender" else "Trascrizione pronta")
     }
 
-    private suspend fun enhance(transcriptionId: Long) {
+    private suspend fun enhance(transcriptionId: Long, control: JobControl) {
         val transcription = repository.getById(transcriptionId)
         val audioPath = transcription?.audioFilePath
         if (transcription == null || audioPath == null || !File(audioPath).exists()) {
@@ -139,7 +196,7 @@ class TranscriptionService : Service() {
             return
         }
 
-        val result = runTranscription(File(audioPath), ModelTier.PRECISE) ?: return
+        val result = runTranscription(File(audioPath), ModelTier.PRECISE, control) ?: return
         repository.updateEnhancedText(transcriptionId, result.text)
         postSuccessNotification(transcriptionId, title = "Precisione migliorata")
     }
@@ -147,19 +204,29 @@ class TranscriptionService : Service() {
     private data class TranscriptionResult(val text: String, val durationMs: Long)
 
     /** Returns the transcription result, or null if a failure notification was already posted. */
-    private suspend fun runTranscription(audioFile: File, tier: ModelTier): TranscriptionResult? {
+    private suspend fun runTranscription(audioFile: File, tier: ModelTier, control: JobControl): TranscriptionResult? {
+        if (control.cancelled) throw TranscriptionServerClient.CancelledException()
+
         val server = serverSettings.get()
         if (server.enabled && server.isConfigured) {
             setOngoing("Provo il server sulla rete di casa...")
+            val handle = TranscriptionServerClient.ConnectionHandle()
+            control.connectionHandle = handle
             try {
-                val text = TranscriptionServerClient.transcribe(server, audioFile, tier)
+                val text = TranscriptionServerClient.transcribe(server, audioFile, tier, control.jobId, handle)
                 // Duration isn't shown anywhere in the UI yet, and the server
                 // does its own decoding - no PCM sample count to derive it from here.
                 return TranscriptionResult(text, durationMs = 0L)
+            } catch (e: TranscriptionServerClient.CancelledException) {
+                throw e
             } catch (e: Exception) {
                 setOngoing("Server non raggiungibile, uso il modello sul telefono...")
+            } finally {
+                control.connectionHandle = null
             }
         }
+
+        if (control.cancelled) throw TranscriptionServerClient.CancelledException()
 
         if (!modelManager.isModelReady(tier)) {
             setOngoing("Scaricamento del modello di trascrizione...")
@@ -167,6 +234,8 @@ class TranscriptionService : Service() {
                 setOngoing("Scaricamento del modello: ${(progress * 100).toInt()}%")
             }
         }
+
+        if (control.cancelled) throw TranscriptionServerClient.CancelledException()
 
         setOngoing("Lettura del file audio...")
         val pcm = withContext(Dispatchers.IO) { AudioDecoder.decodeToPcm16k(audioFile.absolutePath) }
@@ -178,6 +247,12 @@ class TranscriptionService : Service() {
         setOngoing("Trascrizione in corso...\nPer audio lunghi può richiedere qualche minuto.")
         val engine = getOrCreateEngine(tier)
         val text = engine.transcribe(pcm)
+
+        // whisper.cpp itself can't be interrupted mid-computation, so this is
+        // checked only after it naturally finishes: if the user cancelled
+        // while it was running, discard the result instead of surfacing it.
+        if (control.cancelled) throw TranscriptionServerClient.CancelledException()
+
         if (text.isBlank()) {
             postFailureNotification("Non è stato riconosciuto alcun testo in questo audio.")
             return null
@@ -244,11 +319,13 @@ class TranscriptionService : Service() {
 
     companion object {
         private const val ACTION_ENHANCE = "com.paolonata.whatsapptranscriber.action.ENHANCE"
+        private const val ACTION_CANCEL = "com.paolonata.whatsapptranscriber.action.CANCEL"
 
         private const val EXTRA_URI = "extra_uri"
         private const val EXTRA_DISPLAY_NAME = "extra_display_name"
         private const val EXTRA_SENDER = "extra_sender"
         private const val EXTRA_TRANSCRIPTION_ID = "extra_transcription_id"
+        private const val EXTRA_JOB_ID = "extra_job_id"
 
         private const val FOREGROUND_NOTIFICATION_ID = 1
         private const val RESULT_NOTIFICATION_ID_BASE = 1000
@@ -266,6 +343,14 @@ class TranscriptionService : Service() {
             val intent = Intent(context, TranscriptionService::class.java).apply {
                 action = ACTION_ENHANCE
                 putExtra(EXTRA_TRANSCRIPTION_ID, transcriptionId)
+            }
+            ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun cancel(context: Context, jobId: String) {
+            val intent = Intent(context, TranscriptionService::class.java).apply {
+                action = ACTION_CANCEL
+                putExtra(EXTRA_JOB_ID, jobId)
             }
             ContextCompat.startForegroundService(context, intent)
         }

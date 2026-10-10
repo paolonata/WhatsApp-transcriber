@@ -60,6 +60,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onDelete: () -> Unit,
     onEnhance: () -> Unit,
+    onCancelEnhance: () -> Unit,
 ) {
     val context = LocalContext.current
     var fontSize by remember { mutableFloatStateOf(20f) }
@@ -152,7 +153,12 @@ fun DetailScreen(
                         )
                         isEnhancing -> {
                             CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(20.dp), strokeWidth = 2.dp)
-                            Text("Sto migliorando la precisione...", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Sto migliorando la precisione...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onCancelEnhance) { Text("Annulla") }
                         }
                         else -> Button(onClick = onEnhance) {
                             Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.padding(end = 8.dp))

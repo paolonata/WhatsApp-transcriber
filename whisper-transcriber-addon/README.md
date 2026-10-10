@@ -19,6 +19,7 @@ Server di trascrizione vocale offline per l'app Android **Trascrivi WhatsApp**: 
 - L'app Android invia l'audio al Pi solo quando sei sulla stessa rete di casa (connessione diretta, nessun server esterno coinvolto).
 - Se il Pi non è raggiungibile (es. sei fuori casa), l'app passa automaticamente alla trascrizione sul telefono stesso - niente si blocca.
 - Due modelli configurabili: uno "veloce" (usato di default) e uno "preciso" (usato dal pulsante "Migliora precisione").
+- Toccando "Annulla" nell'app, il processo `whisper-cli` in corso sul Pi viene interrotto immediatamente (CPU e temperatura tornano subito normali) tramite l'endpoint `POST /cancel`.
 
 ## Note
 

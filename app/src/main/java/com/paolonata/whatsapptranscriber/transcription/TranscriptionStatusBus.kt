@@ -5,16 +5,19 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Lets the foreground service tell the UI "something is transcribing right
- * now" without either side needing to know about the other's lifecycle.
- * Purely in-memory: if the process dies, there's nothing to lose here since
- * the service itself would also be gone.
+ * now" (and which specific jobs, so the UI can offer to cancel them) without
+ * either side needing to know about the other's lifecycle. Purely in-memory:
+ * if the process dies, there's nothing to lose here since the service itself
+ * would also be gone.
  */
 object TranscriptionStatusBus {
-    private val _activeJobCount = MutableStateFlow(0)
-    val activeJobCount: StateFlow<Int> = _activeJobCount
+    private val _activeJobIds = MutableStateFlow<Set<String>>(emptySet())
+    val activeJobIds: StateFlow<Set<String>> = _activeJobIds
 
-    private val _activeEnhanceIds = MutableStateFlow<Set<Long>>(emptySet())
-    val activeEnhanceIds: StateFlow<Set<Long>> = _activeEnhanceIds
+    // transcriptionId -> jobId, for the detail screen's "Migliora precisione"
+    // row to know both whether it's running and which job to cancel.
+    private val _enhanceJobIds = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val enhanceJobIds: StateFlow<Map<Long, String>> = _enhanceJobIds
 
     // What the currently running job is doing right now (e.g. "Scaricamento
     // del modello: 40%"), so the home screen can show it directly instead of
@@ -23,27 +26,26 @@ object TranscriptionStatusBus {
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage
 
-    fun jobStarted() {
-        _activeJobCount.value += 1
+    fun jobStarted(jobId: String) {
+        _activeJobIds.value = _activeJobIds.value + jobId
     }
 
-    fun jobFinished() {
-        val remaining = (_activeJobCount.value - 1).coerceAtLeast(0)
-        _activeJobCount.value = remaining
-        if (remaining == 0) {
+    fun jobFinished(jobId: String) {
+        _activeJobIds.value = _activeJobIds.value - jobId
+        if (_activeJobIds.value.isEmpty()) {
             _statusMessage.value = null
         }
     }
 
-    fun updateStatus(message: String) {
-        _statusMessage.value = message
-    }
-
-    fun enhanceStarted(transcriptionId: Long) {
-        _activeEnhanceIds.value = _activeEnhanceIds.value + transcriptionId
+    fun enhanceStarted(transcriptionId: Long, jobId: String) {
+        _enhanceJobIds.value = _enhanceJobIds.value + (transcriptionId to jobId)
     }
 
     fun enhanceFinished(transcriptionId: Long) {
-        _activeEnhanceIds.value = _activeEnhanceIds.value - transcriptionId
+        _enhanceJobIds.value = _enhanceJobIds.value - transcriptionId
+    }
+
+    fun updateStatus(message: String) {
+        _statusMessage.value = message
     }
 }

@@ -9,7 +9,11 @@ API:
   POST /transcribe   -> body: raw audio bytes (whatever format WhatsApp used)
                          headers: Authorization: Bearer <token> (required)
                                   X-Model-Tier: fast|precise (default: fast)
+                                  X-Job-Id: <string> (optional, enables /cancel)
                          response: {"text": "..."} or {"error": "..."}
+  POST /cancel        -> headers: Authorization: Bearer <token>, X-Job-Id: <string>
+                         kills the ffmpeg/whisper-cli process for that job, if
+                         still running. response: {"cancelled": true/false}
 
 Everything happens on this one device, on your home network. Nothing here
 ever talks to the internet except the one-time model download.
@@ -28,6 +32,16 @@ WHISPER_BIN = "/opt/whisper.cpp/build/bin/whisper-cli"
 OPTIONS_PATH = "/data/options.json"
 
 transcribe_lock = threading.Lock()
+
+# job_id -> currently running subprocess.Popen for that job (ffmpeg or
+# whisper-cli, whichever is active). Guarded by processes_lock since /cancel
+# runs on a different thread than the /transcribe request it targets.
+processes_lock = threading.Lock()
+active_processes: dict[str, subprocess.Popen] = {}
+
+
+class JobCancelled(Exception):
+    pass
 
 
 def load_config():
@@ -57,7 +71,40 @@ def ensure_model_downloaded(model_name: str) -> None:
     print(f"[whisper-transcriber] model {model_name} ready", flush=True)
 
 
-def transcribe(audio_bytes: bytes, model_name: str, threads: str) -> str:
+def run_cancellable(cmd: list[str], job_id: str | None) -> None:
+    """Runs cmd, registering it under job_id so a concurrent /cancel request
+    can kill it. Raises JobCancelled instead of CalledProcessError when the
+    process was killed because of a cancel request."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if job_id:
+        with processes_lock:
+            active_processes[job_id] = proc
+    try:
+        _, stderr = proc.communicate()
+    finally:
+        if job_id:
+            with processes_lock:
+                if active_processes.get(job_id) is proc:
+                    del active_processes[job_id]
+
+    if proc.returncode != 0:
+        # A killed process (SIGTERM/SIGKILL) exits with a negative returncode
+        # on POSIX - that's our own /cancel endpoint, not a real failure.
+        if proc.returncode < 0:
+            raise JobCancelled()
+        raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=stderr)
+
+
+def cancel_job(job_id: str) -> bool:
+    with processes_lock:
+        proc = active_processes.get(job_id)
+    if proc is None:
+        return False
+    proc.kill()
+    return True
+
+
+def transcribe(audio_bytes: bytes, model_name: str, threads: str, job_id: str | None) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         input_path = os.path.join(tmp, "input.audio")
         wav_path = os.path.join(tmp, "input.wav")
@@ -66,14 +113,13 @@ def transcribe(audio_bytes: bytes, model_name: str, threads: str) -> str:
         with open(input_path, "wb") as f:
             f.write(audio_bytes)
 
-        subprocess.run(
+        run_cancellable(
             ["ffmpeg", "-y", "-i", input_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav_path],
-            check=True,
-            capture_output=True,
+            job_id,
         )
 
         with transcribe_lock:
-            subprocess.run(
+            run_cancellable(
                 [
                     WHISPER_BIN,
                     "-m", model_path(model_name),
@@ -84,8 +130,7 @@ def transcribe(audio_bytes: bytes, model_name: str, threads: str) -> str:
                     "-otxt",
                     "-of", out_prefix,
                 ],
-                check=True,
-                capture_output=True,
+                job_id,
             )
 
         with open(out_prefix + ".txt", "r", encoding="utf-8") as f:
@@ -112,10 +157,38 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/transcribe":
+        if self.path == "/transcribe":
+            self._handle_transcribe()
+        elif self.path == "/cancel":
+            self._handle_cancel()
+        else:
             self._send_json(404, {"error": "not found"})
+
+    def _handle_cancel(self):
+        try:
+            config = load_config()
+        except Exception:
+            self._send_json(500, {"error": "Configurazione del server non leggibile"})
+            return
+        if not self._authorized(config):
+            self._send_json(401, {"error": "Token non valido"})
             return
 
+        # Some HTTP clients send a body even on a "fire and forget" cancel;
+        # drain it so the connection doesn't hang.
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            self.rfile.read(content_length)
+
+        job_id = self.headers.get("X-Job-Id")
+        if not job_id:
+            self._send_json(400, {"error": "Header X-Job-Id mancante"})
+            return
+
+        cancelled = cancel_job(job_id)
+        self._send_json(200, {"cancelled": cancelled})
+
+    def _handle_transcribe(self):
         try:
             config = load_config()
         except Exception:
@@ -133,12 +206,15 @@ class Handler(BaseHTTPRequestHandler):
         audio_bytes = self.rfile.read(content_length)
 
         tier = self.headers.get("X-Model-Tier", "fast")
+        job_id = self.headers.get("X-Job-Id")
         model_name = config["precise_model"] if tier == "precise" else config["fast_model"]
 
         try:
             ensure_model_downloaded(model_name)
-            text = transcribe(audio_bytes, model_name, config["threads"])
+            text = transcribe(audio_bytes, model_name, config["threads"], job_id)
             self._send_json(200, {"text": text})
+        except JobCancelled:
+            self._send_json(200, {"error": "cancelled"})
         except Exception as e:
             traceback.print_exc()
             self._send_json(500, {"error": f"Trascrizione fallita: {e}"})

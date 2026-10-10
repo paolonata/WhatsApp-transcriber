@@ -1,5 +1,5 @@
 name: "Whisper Transcriber"
-version: "1.0.0"
+version: "1.1.0"
 slug: "whisper_transcriber"
 description: "Server di trascrizione offline per l'app Trascrivi WhatsApp - whisper.cpp in locale, nessun dato esce dalla rete di casa"
 url: "https://github.com/paolonata/WhatsApp-transcriber"

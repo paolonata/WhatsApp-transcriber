@@ -69,6 +69,7 @@ fun HomeScreen(
     statusMessage: String?,
     onOpen: (Long) -> Unit,
     onDelete: (Transcription) -> Unit,
+    onCancelAll: () -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<Transcription?>(null) }
     var showServerSettings by remember { mutableStateOf(false) }
@@ -107,7 +108,7 @@ fun HomeScreen(
                         item { InstructionsCard() }
 
                         if (activeJobCount > 0) {
-                            item { ActiveJobBanner(activeJobCount, statusMessage) }
+                            item { ActiveJobBanner(activeJobCount, statusMessage, onCancelAll) }
                         }
 
                         groups.forEach { (sender, entries) ->
@@ -150,7 +151,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ActiveJobBanner(count: Int, statusMessage: String?) {
+private fun ActiveJobBanner(count: Int, statusMessage: String?, onCancelAll: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(
             modifier = Modifier
@@ -160,7 +161,7 @@ private fun ActiveJobBanner(count: Int, statusMessage: String?) {
         ) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
             Spacer(Modifier.width(12.dp))
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     if (count == 1) "Trascrizione in corso" else "$count trascrizioni in corso",
                     style = MaterialTheme.typography.bodyLarge,
@@ -169,6 +170,7 @@ private fun ActiveJobBanner(count: Int, statusMessage: String?) {
                     Text(statusMessage, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            TextButton(onClick = onCancelAll) { Text("Annulla") }
         }
     }
 }

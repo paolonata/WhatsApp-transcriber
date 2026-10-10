@@ -117,8 +117,8 @@ private fun AppRoot(viewModel: MainViewModel) {
     val screen by viewModel.screen.collectAsStateWithLifecycle()
     val transcriptions by viewModel.transcriptions.collectAsStateWithLifecycle()
     val recentSenders by viewModel.recentSenders.collectAsStateWithLifecycle()
-    val activeJobCount by viewModel.activeJobCount.collectAsStateWithLifecycle()
-    val activeEnhanceIds by viewModel.activeEnhanceIds.collectAsStateWithLifecycle()
+    val activeJobIds by viewModel.activeJobIds.collectAsStateWithLifecycle()
+    val enhanceJobIds by viewModel.enhanceJobIds.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val pendingShare by viewModel.pendingShare.collectAsStateWithLifecycle()
 
@@ -129,28 +129,32 @@ private fun AppRoot(viewModel: MainViewModel) {
     when (val current = screen) {
         is Screen.Home -> HomeScreen(
             transcriptions = transcriptions,
-            activeJobCount = activeJobCount,
+            activeJobCount = activeJobIds.size,
             statusMessage = statusMessage,
             onOpen = viewModel::openDetail,
             onDelete = viewModel::deleteTranscription,
+            onCancelAll = viewModel::cancelAllJobs,
         )
         is Screen.Detail -> {
             val item = transcriptions.find { it.id == current.id }
             if (item != null) {
+                val enhanceJobId = enhanceJobIds[current.id]
                 DetailScreen(
                     transcription = item,
-                    isEnhancing = current.id in activeEnhanceIds,
+                    isEnhancing = enhanceJobId != null,
                     onBack = viewModel::showHome,
                     onDelete = { viewModel.deleteTranscription(item) },
                     onEnhance = { viewModel.enhanceTranscription(item) },
+                    onCancelEnhance = { enhanceJobId?.let { viewModel.cancelJob(it) } },
                 )
             } else {
                 HomeScreen(
                     transcriptions = transcriptions,
-                    activeJobCount = activeJobCount,
+                    activeJobCount = activeJobIds.size,
                     statusMessage = statusMessage,
                     onOpen = viewModel::openDetail,
                     onDelete = viewModel::deleteTranscription,
+                    onCancelAll = viewModel::cancelAllJobs,
                 )
             }
         }
